@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.14.5
+#       jupytext_version: 1.16.2
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -261,21 +261,21 @@ bid_against_simulated_population(100, 230000, pop_size=300)
 bid_profile_fee = rng.geometric(1/100, size=300)
 bid_profile_gas = rng.geometric(1/150000, size=300)
 
-support = mechanism_support_at_size(bid_profile_fee, bid_profile_gas, 345000)
+ask = bid_profile_ask(bid_profile_fee, bid_profile_gas, 345000)
 
-# The bid (support+1, 345000) should fit into the block.
+# The bid (ask+1, 345000) should fit into the block.
 
-bid_profile_fee_extended = np.append(bid_profile_fee, support+1)
+bid_profile_fee_extended = np.append(bid_profile_fee, ask+1)
 bid_profile_gas_extended = np.append(bid_profile_gas, 345000)
 
-assert selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
+assert mechanism_selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
 
 
-# The bid (support-1, 345000) should *not* fit into the block. (Assuming greedy split algorithm.)
+# The bid (ask-1, 345000) should *not* fit into the block. (Assuming greedy split algorithm.)
 
-bid_profile_fee_extended = np.append(bid_profile_fee, support-1)
+bid_profile_fee_extended = np.append(bid_profile_fee, ask-1)
 bid_profile_gas_extended = np.append(bid_profile_gas, 345000)
 
-assert not selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
+assert not mechanism_selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
 
 # %%
