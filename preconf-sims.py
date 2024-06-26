@@ -17,6 +17,9 @@
 # # mev-commit preconf sims
 
 # %%
+# !python -V
+
+# %%
 # imports
 import numpy as np
 
@@ -34,6 +37,14 @@ rng = np.random.default_rng()
 # 4. mu is normally distributed with mean drift_loc and standard deviation drift_scale
 # 5. For simplicity, instantaneous variance is a constant 1.
 # 6. Bidder gas requirements are drawn from a geometric distribution with mean `mean_gas_usage`
+#
+# ```mermaid
+# graph TD;
+#     A-->B;
+#     A-->C;
+#     B-->D;
+#     C-->D;
+# ```
 
 # %%
 # PROVIDER
@@ -124,30 +135,6 @@ def mechanism_selection(bid_price, bid_gas, capacity=BLOCK_SIZE, reserve_fee=0):
     
     gas_summed = np.zeros(bid_price.shape, dtype=np.int64)
     gas_summed[indices_sorted] = np.cumsum(bid_gas[indices_sorted])
-    return gas_summed <= capacity
-
-
-
-# WIP stacked array version of selection()
-# weird indexing stuff is needed
-# not so hard if we assume 2-diml array
-
-def mechanism_selection_stacked(bid_price, bid_gas, capacity=BLOCK_SIZE):
-    """
-    Takes arrays of bid prices and gas requests and returns a mask indicating which bids were selected for inclusion.
-    
-    This is a very lazy version of the algorithm that doesn't attempt to fill any leftover space by
-    skipping further along the sorted list.
-    """
-    indices_sorted = np.argsort(bid_price, axis=-1) # sort on last axis
-    indices_prefix = np.indices(bid_prices.shape[:-1]) # indices of all but last axis
-    
-    # we want to do something like:
-    # bid_price[*indices_prefix, indices_sorted]
-    # but that doesn't work.
-    
-    gas_summed = np.zeros(bid_price.shape, dtype=np.int64)
-    gas_summed[indices_sorted] = np.cumsum(bid_gas[indices_sorted], axis=-1) # sum on last axis
     return gas_summed <= capacity
 
 
@@ -277,5 +264,7 @@ bid_profile_fee_extended = np.append(bid_profile_fee, ask-1)
 bid_profile_gas_extended = np.append(bid_profile_gas, 345000)
 
 assert not mechanism_selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
+
+# %%
 
 # %%
