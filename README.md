@@ -4,13 +4,15 @@ I use `pdm run jupyter notebook` to run this thing, but you can probably get by 
 
 ## Introduction
 
-* 
+TODO
 
 ## Model description
 
 The mev-commit preconfirmation auction model is a dynamic allocation of fixed capacity. A population of bidders want to get items (transactions, bundles) of various sizes into a knapsack (block) of size $K$, and issue bids to a revenue-maximising provider with the power to decide which items get in. Bidders can issue bids at any time in the auction interval $[0,T]$. Due to a mechanism where a bid decays automatically over time, providers must respond quickly to bids or discard them; for simplicity, we assume that providers must make an *immediate* decision on each bid. Once a bid is accepted, an appropriate amount of the knapsack is committed and cannot be reallocated to other items; that bidder subsequently becomes inactive.
 
-In continuous time, the provider's decision space is infinite-dimensional. Clearly, the provider needs to impose some constraints upon itself to get a tractable problem. In this repo we've taken the approach of restricting to a finite number of *epochs*, assuming that in each epoch, all bids and the provider decision occur instantaneously at the end of each round.
+In continuous time, the provider's decision space is infinite-dimensional. Clearly, the provider needs to impose some constraints upon itself to get a tractable problem. In this repo we've taken the approach of restricting to a finite number of *epochs*, assuming that in each epoch, all bids and the provider decision occur instantaneously at the end of each round. This discrete time approach has the advantage of analytic tractability,[^pavan-myerson] and can be used to approximate continuous time environments by increasing the number of rounds.
+
+[^pavan-myerson]: See for example https://faculty.wcas.northwestern.edu/apa522/DMD-final.pdf. 
 
 ### Provider parameters
 
@@ -20,11 +22,14 @@ The provider needs to decide what mechanism to use to sell the preconfs.
 * A sequence of natural numbers $K_0\leq\cdots \leq K_{N-1}$, where $K=K_{N-1}$ is the block capacity. We adopt the notational convention that $K_i=\check{K_i}=0$ for $i<0$.
 * Optionally: a sequence of prices $R_0,\ldots,R_{N-1}$ to use as reservation prices in each round.
 
-Starting from round zero, in round $i+1$ we suppose that a quantity $\check{K}_i$ has been allocated in round $i$ and put a quantity $K_i-\check{K_i}$ up for sale in a static knapsack auction. 
+Starting from round zero, in round $i+1$ we suppose that a quantity $\check{K}_i$ has been allocated in round $i$ and put a quantity $K_i-\check{K_i}$ up for sale in a static knapsack auction.[^provider-strategy]
 
-Bids are selected using the greedy split selection rule, which selects bids into the knapsack in descending order of fee (per unit capacity) until it encounters one that doesn't fit. (A full greedy algorithm would carry on iterating to the end of the list, selecting any further bids it finds that fit.)
+[^provider-strategy]: There are a number of reasons the provider may wish to do this. One is that restricting capacity can create artificial congestion which pushes up floor prices. Another is that information surfaced by bidder behaviour in earlier rounds can be used to make more informed decisions about parameters in later rounds. See https://mirror.xyz/preconf.eth/iPfGsj55-C-D13hyrj_hj2tHAKU7xzeqltZ6gIum3j4.
+
+Bids are selected using the greedy split selection rule, which selects bids into the knapsack in descending order of fee (per unit capacity) until it encounters one that doesn't fit. 
 
 ```python
+# Greedy Split algorithm pseudocode
 def greedy_split_selection(bids: array[tuple[float, int]], capacity: int) -> array[bool]:
     n_bids <- length(bids)
     selected: array[bool; n_bids] # selection mask
@@ -36,6 +41,8 @@ def greedy_split_selection(bids: array[tuple[float, int]], capacity: int) -> arr
         bids_cumulative_total[i] <- sum(bids_sorted_by_fee)[:i]
         selected[i] <- (bids_cumulative_total[i] <= capacity)
 ```
+
+A full greedy algorithm would carry on iterating to the end of the list, selecting any further bids it finds that fit. Greedy Split is used here purely because it is easier to vectorise using numpy. In general, greedy split will waste more of the knapsack capacity than greedy, which accordingly puts some upward pressure on prices.
 
 ### Bidder parameters
 
@@ -86,77 +93,35 @@ In some theoretical models, the bidder *population* (more precisely, the distrib
 
 #### Bidder strategy
 
-We implement two fairly trivial approaches to bidder strategies:
+The most straightforward bidder strategy is:
 
-* *Direct revelation.* Bid your current limit value $v$. This is a very naive model: in reality, given that our auction model is pay-as-bid, we would expect bidders to [shade](https://en.wikipedia.org/wiki/Bid_shading) their bids.
-* *Bid against simulated population.* Bidders make an ansatz about the population against which they are competing, including assumptions about the distribution of their opponents' types and the strategy they will use, then simulate a bid profile and bid in order to beat the *ask* of the bid pool at the target item size.
-* *Bid against simulated population with quantile bound.* (Not implemented yet).
+1. *Direct revelation.* Bid your current limit value $v$. This is a very naive model: in reality, given that our auction model is pay-as-bid, we would expect bidders to [shade](https://en.wikipedia.org/wiki/Bid_shading) their bids. It has a payoff of zero in all realisations.
 
-Note that all of these strategies are *static*, in that they only take into consideration the situation in the current round. A basic improvement on this is to using the expected return from bidding in *later* rounds to bound bidding in the current round: indeed, a bidder is unlikely to bid early if he is highly likely to achieve a greater surplus by waiting until a later round.
+A more realistic strategy is to bid against a *simulation.* Bidders should have access to a *simulator* from which they can sample or compute statistics over the actions of other bidders and the provider. Note that we have assumed the provider announces in advance what they will do, so the meat is in forecasting the behaviour of other bidders.
 
-### Implementation notes
+2. *Bid against simulated population.* Sample once from an opposing bidder population and bid just above the resulting floor. Easy to implement and may be reasonable in aggregate over many runs.
+3. *Empirical chance bound.* Fix a value $0<p<1$ and bid against a simulated population so as to achieve at least probability $p$ of inclusion. This probability can be estimated by running the simulation many times and evaluating an empirical quantile function at $p$. (Strategy 2. is the special case of this where the sample size is 1.)
+4. *Expectation maximisation.* Numerically optimise the expected surplus $u(b) = p(b)(v-b)$ where $p$ is the probabilty of acceptance of a bid $b$. Given a simulator, the empirical distribution function can be used to estimate $p(b)$.
 
-We introduce the following interfaces:
+The strategies described so far all apply to a single round static knapsack auction. The dynamic, multi-round setting complicates the strategy space in two ways:
 
-```python
-# Proposed types
+* Bidders can use a forecast of the outcomes of future rounds to inform decision-making in the current one.
+* Bidders recall whatever information about the outcomes of previous rounds was made available to them. In the mev-commit model, this consists of the list of bids they made and whether or not they were accepted.
 
-interface BidderPopulation # distribution from which bidder types are sampled
-    def sample() -> list[Bidder] # sample a number
-    
-# Implementations of this interface need to choose what bidder "(computer) type" they 
-type NormalBidderPopulation:
-    rng = np.random.default_rng()
-    pop_size: int
-    mean: float
-    variance: float
-        
-    def sample(self) -> list[Bidder]:
-        return self.rng.normal(mean, variance, size=pop_size)
-    
-type StaticBidderPopulation:
-    data: array[Bid]
-        
-    def sample(self) -> list[Bidder]:
-        return data
-    
-type Bid = (float v, float g) # positive reals representing the limit value and gas.
+Let's focus on the simplest possible case of a two-round auction. Bidders have two fundamental options:
 
-interface Bidder
-    def bid(self) -> Bid
-    
-# Bidder implementations
+5. Bid in the first round (using any of the single-round strategies), and if the bid is rejected, try again in the second.
+6. Sit out the first round and bid only in the second.
 
-interface StaticBidder:
-    theta: float
-    
-type BidProfile = list[Bid]
+How does one decide between these strategies? A forward-thinking bidder should not issue a bid $b$ in the first round if he believes there is a high probability of achieving a greater surplus in the second.
 
-interface 
-```
+More complex strategies might even use this forecase to adjust the size of the bid in the first round, rather than simply deciding whether or not to participate.
 
+### Simulators
 
+1. *IID direct revelation population.* Assume other bidders use a direct revelation strategy and sample their internal types i.i.d. from some distribution.
+2. TODO
 
-
-
-## Assumptions
-
-* The Primev auction model is fully dynamic, meaning that bidders can issue bids at any time and providers can accept bids in its inbox at any time. That means that even with a deterministic arrival process for bids, the provider's decision space is infinite-dimensional. Clearly, the provider needs to impose some constraints upon itself to get a tractable problem.
-
-* The simplest possible approach that still retains some of the dynamic aspects of the problem is what the dynamic mechanism design literature calls *sequential allocation of fixed capacity*. In it, the block capacity $K$ is repeatedly offered up for auction in $N$ rounds. Bids that are not accepted in one round expire by the next. (In mev-commit, one can approximate this situation by assuming that the rounds are far enough apart that the bid decay function makes any bid available in round $n$ unattractive in round $n+1$.)
-
-* We push this approach a bit further by allowing the provider to choose restricted capacities $K_0\leq K_1\leq\cdots\leq K_{N-1}=K$ to auction off in each of the $N$ rounds. If $\check{K}_i$ is the amount of the knapsack sold off by the $i$th round, $K_{i+1}-\check{K}_i$ will be available in the $(i+1)$th round. 
-
-  There are a number of reasons the provider may wish to do this.[^pricing] One is that restricting capacity can create artificial congestion which pushes up floor prices. Another is that information surfaced by bidder behaviour in earlier rounds can be used to make more informed decisions about parameters in later rounds.
-
-* In general, discrete time models are theoretically more tractable than continuous time ones. Continuous time environments can be approximated by a high resolution discrete time model.
-
-  For example, Myerson-style optimal mechanisms have been analysed in the discrete time environment.[^pavan-myerson]
-
-* I implemented the greedy split knapsack packing algorithm, which gives up after first encountering an item that doesn't fit, rather than the full greedy algorithm. This was purely because the greedy split algorithm is easier to vectorise using numpy. In general, greedy split will waste more of the knapsack capacity than greedy, which accordingly puts some upward pressure on prices.
-
-[^pricing]: https://mirror.xyz/preconf.eth/iPfGsj55-C-D13hyrj_hj2tHAKU7xzeqltZ6gIum3j4
-[^pavan-myerson]: https://faculty.wcas.northwestern.edu/apa522/DMD-final.pdf
 
 ## Things to work on
 
@@ -180,7 +145,6 @@ I include a short glossary of terms from general knapsack problems and mechanism
 
 For the most part, we prefer to use generic terms from the theory of knapsack problems and mechanism design.
 
-* We use *block* because
 * *Capacity* is more general than block size: it can apply to constrained amounts of blockspace made available in an auction.
 * *Size* is shorter than gas limit and reasonably intuitive. (However, in specific contexts like trading there may be danger of confusion with parameters like trade size.)
 * *Item* can refer to either a transaction or bundle. We use the term as the model is agnostic to the contents or internal structure of items.
