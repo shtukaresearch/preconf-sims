@@ -113,9 +113,11 @@ Let's focus on the simplest possible case of a two-round auction. Bidders have t
 5. Bid in the first round (using any of the single-round strategies), and if the bid is rejected, try again in the second.
 6. Sit out the first round and bid only in the second.
 
-How does one decide between these strategies? A forward-thinking bidder should not issue a bid $b$ in the first round if he believes there is a high probability of achieving a greater surplus in the second.
+How does one decide between these strategies? A forward-thinking bidder should not issue a bid $b$ in the first round if he believes there is a high probability of achieving a greater surplus in the second. Intuitively, this could happen if $K_0$ is small and so the expected floor in the first round is high, and the bidder's own internal preconf premium (equal to $-d$, the negation of the drift of their value process) is not too large. 
 
-More complex strategies might even use this forecase to adjust the size of the bid in the first round, rather than simply deciding whether or not to participate.
+The simplest approach to express is to choose the one with higher expected surplus.
+
+More complex strategies might even use this forecast to adjust the size of the bid in the first round, rather than simply deciding whether or not to participate.
 
 ### Simulators
 
