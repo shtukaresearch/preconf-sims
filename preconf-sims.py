@@ -26,7 +26,7 @@ import numpy as np
 # seed randomness
 rng = np.random.default_rng()
 
-# %% [markdown]
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
 # ## Provider and bidder population parameters
 
 # %% [markdown]
@@ -70,7 +70,7 @@ sigma = 100       # (constant) type instantaneous volatility
 mean_gas_usage = 150000
 
 
-# %% [markdown]
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
 # ## Sampling
 
 # %%
@@ -92,7 +92,26 @@ def population_gen_types_dynamic(sample_size=N_BIDDERS) -> dict:
 
 
 # %%
+# A population drawn by copying some data,
+# assuming those bidders used a direct revelation strategy in the past
+# and remain unchanged today.
+
+def population_gen_from_data(fee, gas) -> dict:
+    return {
+        "value": np.array(fee),
+        "gas": np.array(gas)
+    }
+
+
+# %%
 # realised increments
+
+def bidder_gen_realization(bidder):
+    "Generate the realized type at delivery for a sample of bidders. Negative realizations are allowed."
+    
+    realized_increment = rng.normal(loc=-bidder["premium"], scale=bidder["noise"])
+    # arithmetic increment
+    return bidder["value"] + realized_increment
 
 def bidder_gen_realizations(bidder):
     "Generate the realized type at delivery for a sample of bidders. Negative realizations are allowed."
@@ -100,13 +119,13 @@ def bidder_gen_realizations(bidder):
     
     realized_increments = np.zeros(sample_size, dtype=np.float64)
     for i in range(sample_size):
-        realized_increments[i] = rng.normal(loc=bidder["premium"][i], scale=bidder["noise"][i])
+        realized_increments[i] = rng.normal(loc=-bidder["premium"][i], scale=bidder["noise"][i])
         
     # arithmetic increment
     return bidder["value"] + realized_increments
 
 
-# %% [markdown]
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
 # ## Selection rule
 
 # %% [markdown]
@@ -167,7 +186,7 @@ def bid_profile_ask(bid_profile_fee, bid_profile_gas, target_gas, capacity=BLOCK
     # https://stackoverflow.com/questions/16243955/numpy-first-occurrence-of-value-greater-than-existing-value
     
     support_index = np.searchsorted(gas_summed[indices_sorted], capacity-target_gas, side="right")
-    print(f"Support index: {support_index}")
+    #print(f"Support index: {support_index}")
     
     # Theorem: last_index < len(bid_profile_fee)
     if support_index == len(bid_profile_fee):
@@ -178,7 +197,7 @@ def bid_profile_ask(bid_profile_fee, bid_profile_gas, target_gas, capacity=BLOCK
     return support
 
 
-# %% [markdown]
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
 # ## Bid strategies
 
 # %% [markdown]
@@ -215,7 +234,7 @@ def bid_against_simulated_population(limit, weight, pop_size = N_BIDDERS, capaci
     # Assume opponents use the direct revelation bidding strategy
     bid_profile_fee = bid_direct_revelation(type_profile_fee)
     bid_profile_gas = type_profile_gas
-    print(f"Total gas usage in message pool: {bid_profile_gas.sum()}")
+    #print(f"Total gas usage in message pool: {bid_profile_gas.sum()}")
         
     ### Obtain simulated ask price
     
@@ -224,8 +243,9 @@ def bid_against_simulated_population(limit, weight, pop_size = N_BIDDERS, capaci
         
     # Apply limit constraint
     bid = min(bid, limit)
-    
-    return bid
+
+    # Don't bid a negative number (although this is possible in principle)
+    return max(0, bid)
 
 
 # Another opponent simulation strategy: match each opponent to a randomly selected (winning) bid from
@@ -233,13 +253,176 @@ def bid_against_simulated_population(limit, weight, pop_size = N_BIDDERS, capaci
 # Even simpler: just use the exact set of winning bids from the previous block as a bid profile.
 
 # %%
-bid_against_simulated_population(100, 230000, pop_size=300)
+def sim_floor(size, pop_size = N_BIDDERS, capacity=BLOCK_SIZE):
+    """
+    Simulate one round of bidding and compute the floor at a given size.
+    """
+    type_profile = population_gen_types_static(pop_size)
+    type_profile_fee = type_profile["value"]
+    type_profile_gas = type_profile["gas"]
+    
+    # Assume opponents use the direct revelation bidding strategy
+    bid_profile_fee = bid_direct_revelation(type_profile_fee)
+    
+    bid_profile_gas = type_profile_gas
+    
+    return bid_profile_ask(bid_profile_fee, bid_profile_gas, size, capacity=capacity)
+
+DEFAULT_SAMPLE_SIZE = 1000
+
+def sim_floor_quantile(size, quantile, pop_size = N_BIDDERS, capacity=BLOCK_SIZE, sample_size=DEFAULT_SAMPLE_SIZE):
+    """
+    Get an estimate of the quantile of the floor price of a simulated population using the "median_unbiased" estimator.
+    """
+
+    floor_sims = [sim_floor(size, pop_size=pop_size, capacity=capacity) for _ in range(sample_size)]
+    return np.quantile(floor_sims, quantile, method="median_unbiased")
+
+
+def bid_against_sim_quantile(size, quantile, pop_size = N_BIDDERS, capacity=BLOCK_SIZE, sample_size=DEFAULT_SAMPLE_SIZE):
+    """
+    Return a bid that would make it in with probability `quantile`
+    against a simulated direct revelation populations.
+    """
+
+    return max(0, 1 + sim_floor_quantile(size, quantile, pop_size=pop_size, capacity=capacity, sample_size=sample_size))
+
+def bid_against_sim_quantile_limit(limit, size, quantile, pop_size = N_BIDDERS, capacity=BLOCK_SIZE, sample_size=DEFAULT_SAMPLE_SIZE):
+    # Apply limit constraint
+    return max(0,min(limit, bid_against_sim_quantile(size, quantile, pop_size=pop_size, capacity=capacity, sample_size=sample_size)))
+
+
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
+# ## Example: floor prices at various quantiles, sizes, and capacity
+#
+# Illustrating the fairly obvious fact that shrinking the capacity pushes the floor price right up. Hence, an early preconf auction with a restricted capacity may well be expected to fetch premium prices.
 
 # %%
-# Main loop 
-# Generate a sample population and run two rounds of bidding.
+def print_floor(size, quantile, capacity):
+    print("size", end=": ");     print(f"{size}".rjust(7), end="\t")
+    print(f"quantile: {quantile}", end="\t")
+    print("capacity", end=": "); print(f"{capacity}".rjust(8), end="\t")
+    print("|", end="\t")
+    print(f"floor: {sim_floor_quantile(size, quantile, capacity=capacity)}")
 
-# %% [markdown]
+print_floor( 60000, 0.99, 30000000)
+print_floor(120000, 0.99, 30000000)
+print_floor(120000, 0.9 , 30000000)
+print_floor(120000, 0.99,  3000000)
+print_floor(120000, 0.9 ,  3000000)
+print_floor(2000000, 0.99, 30000000)
+
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
+# ## Example: bidding in two rounds against simulated opponents
+#
+# An example application for a bidder who wishes to bid in the preconf round and then, if unsuccessful, again in the spot round.
+#
+# 1. Bid against simulated opponents at 7th decile.
+# 2. Realize result (here simulated by a separate "environment" simulator).
+# 3. If successful, stop here.
+# 4. Else, realize second stage inner value.
+# 5. Bid against simulated opponents at 99th centile.
+# 6. Realize result.
+#
+# Observation: if opponents are stupid and bid as though the whole capacity is available, it becomes self fulfilling and the price drops substantially.
+# Then X's strategy tends to overbid quite a lot.
+#
+# We can see from the realizations where X carries on to the second round that this strategy is quite stupid: X often achieves a much greater surplus if he fails to make it into the preconf round. On the oth
+
+# %%
+# Bidder X parameters
+
+X = {
+    # private moduli
+    "value": 330,    # big spender (0.33 gwei)
+    "premium": 100,  # positive preconf premium
+    "noise": 100,    # standard instantaneous volatility
+    "gas": 340000,     # 2-hop swap
+    
+    # internal model of the competitor population
+    "simulator": {   
+        "N_BIDDERS": 200,
+        "N_BIDDERS_PRECONF_ROUND": 50,
+        "v_t_mean": 100,
+        "drift_loc": 0,
+        "drift_scale": 75,
+        "sigma": 100,
+        "mean_gas_usage": 180000
+    }
+}
+
+# 1. Bid against simulated opponents
+# Note. Implementation here doesn't use X's model of the population, except for N_BIDDERS_PRECONF_ROUND.
+# Using a low quantile so that the bidding quite often progresses to a second round.
+X_bid = bid_against_sim_quantile_limit(X["value"], X["gas"], 0.7, pop_size = X["simulator"]["N_BIDDERS_PRECONF_ROUND"], capacity=PRECONF_CAPACITY)
+print(f"X bids {X_bid}.")
+
+# 2. Realize preconf round result.
+# 2a. Generate geometrically distributed Wiener bidders. (These persist through rounds.)
+# Only the first 75 bid in the preconf round.
+bidders = population_gen_types_dynamic()
+bidders_g = list(zip(bidders["value"], bidders["gas"]))[:75]
+# 2b. Generate bids as though the bidders use a similar strategy to X (but with common knowledge of true population parameters)
+bid_queue = [(X_bid, X["gas"])]
+bid_queue.extend([(bid_against_simulated_population(*Y, capacity=PRECONF_CAPACITY), Y[1]) for Y in bidders_g])
+# 2c. Apply selection rule
+bid_fee, bid_gas = zip(*bid_queue)
+mask = mechanism_selection(np.array(bid_fee), np.array(bid_gas), capacity=PRECONF_CAPACITY)
+
+# 3. If X's bid (at index 0) is selected, stop.
+if mask[0]:
+    print(f"Made it in at preconf round with surplus {X["value"] - bid_fee[0]}.")
+    second_round = False
+else:
+    print("Continuing to next round.")
+    second_round = True
+    
+    # 4. Realize second stage inner value.
+    X["v_1"] = bidder_gen_realization(X)
+    
+    # 5. Bid against simulated opponents at 99th centile.
+    X_bid = bid_against_sim_quantile_limit(X["v_1"], X["gas"], 0.99, pop_size = X["simulator"]["N_BIDDERS"])
+    print(f"X bids {X_bid}.")
+
+    # 6. Realize spot round result.
+    # 6a. Realize population spot round inner types
+    bidders["v_1"] = bidder_gen_realizations(bidders)
+    bidders_g = zip(bidders["v_1"], bidders["gas"])
+    
+    # 6b. Populate spot bid queue.
+    bid_queue_spot = [(X_bid, X["gas"])]
+    bid_queue_spot.extend([(bid_against_simulated_population(*Y), Y[1]) for Y in bidders_g])
+
+    # 6c. Apply selection rule.
+    bid_fee_spot, bid_gas_spot = zip(*bid_queue_spot)
+    mask = mechanism_selection(np.array(bid_fee), np.array(bid_gas))
+    if mask[0]:
+        print(f"Made it in at spot round with surplus {X["v_1"] - bid_fee_spot[0]}.")
+    else:
+        print("Whoops! Missed the block!")
+
+# %%
+# Let's look at the bids people made wth that strategy
+from matplotlib import pyplot
+s = np.full_like(bid_fee, 0.2)
+s[0] = 8 # highlight X's bid
+ax = pyplot.scatter(bid_fee, bid_gas, s)
+pyplot.title("Bid queue, preconf round")
+pyplot.xlabel("fee bid")
+pyplot.ylabel("gas_limit")
+pyplot.show()
+
+# %%
+if second_round:
+    s = np.full_like(bid_fee_spot, 0.2)
+    s[0] = 8 # highlight X's bid
+    ax = pyplot.scatter(bid_fee_spot, bid_gas_spot, s)
+    pyplot.title("Bid queue, spot round")
+    pyplot.xlabel("fee bid")
+    pyplot.ylabel("gas_limit")
+    pyplot.show()
+
+# %% [markdown] jp-MarkdownHeadingCollapsed=true
 # ## Tests
 
 # %%
@@ -264,7 +447,5 @@ bid_profile_fee_extended = np.append(bid_profile_fee, ask-1)
 bid_profile_gas_extended = np.append(bid_profile_gas, 345000)
 
 assert not mechanism_selection(bid_profile_fee_extended, bid_profile_gas_extended)[-1]
-
-# %%
 
 # %%
