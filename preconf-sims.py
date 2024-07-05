@@ -326,8 +326,6 @@ print_floor(2000000, 0.99, 30000000)
 #
 # Observation: if opponents are stupid and bid as though the whole capacity is available, it becomes self fulfilling and the price drops substantially.
 # Then X's strategy tends to overbid quite a lot.
-#
-# We can see from the realizations where X carries on to the second round that this strategy is quite stupid: X often achieves a much greater surplus if he fails to make it into the preconf round. On the oth
 
 # %%
 # Bidder X parameters
