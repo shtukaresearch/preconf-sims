@@ -115,8 +115,8 @@ The most straightforward bidder strategy is:
 A more realistic strategy is to bid against a *simulation.* Bidders should have access to a *simulator* from which they can sample or compute statistics over the actions of other bidders and the provider. Note that we have assumed the provider announces in advance what they will do, so the meat is in forecasting the behaviour of other bidders.
 
 2. *Bid against simulated population.* Sample once from an opposing bidder population and bid just above the resulting floor. Easy to implement and may be reasonable in aggregate over many runs.
-3. *Empirical chance bound.* Fix a value $0<p<1$ and bid against a simulated population so as to achieve at least probability $p$ of inclusion. This probability can be estimated by running the simulation many times and evaluating an empirical quantile function at $p$. (Strategy 2. is the special case of this where the sample size is 1.)
-4. *Expectation maximisation.* Numerically optimise the expected surplus $u(b) = p(b)(v-b)$ where $p$ is the probabilty of acceptance of a bid $b$. Given a simulator, the empirical distribution function can be used to estimate $p(b)$.
+3. *Empirical chance bound.* Fix a value ${0 < p < 1}$ and bid against a simulated population so as to achieve at least probability $p$ of inclusion. This probability can be estimated by running the simulation many times and evaluating an empirical quantile function at $p$. (Strategy 2. is the special case of this where the sample size is 1.)
+7. *Expectation maximisation.* Numerically optimise the expected surplus $u(b) = p(b)(v-b)$ where $p$ is the probabilty of acceptance of a bid $b$. Given a simulator, the empirical distribution function can be used to estimate $p(b)$.
 
 The strategies described so far all apply to a single round static knapsack auction. The dynamic, multi-round setting complicates the strategy space in two ways:
 
