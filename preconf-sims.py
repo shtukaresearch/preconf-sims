@@ -37,14 +37,6 @@ rng = np.random.default_rng()
 # 4. mu is normally distributed with mean drift_loc and standard deviation drift_scale
 # 5. For simplicity, instantaneous variance is a constant 1.
 # 6. Bidder gas requirements are drawn from a geometric distribution with mean `mean_gas_usage`
-#
-# ```mermaid
-# graph TD;
-#     A-->B;
-#     A-->C;
-#     B-->D;
-#     C-->D;
-# ```
 
 # %%
 # PROVIDER
