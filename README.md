@@ -1,10 +1,25 @@
 # Preconfirmation auction simulations: bidder strategy
 
-I use `pdm run jupyter notebook` to run this thing, but you can probably get by with whatever virtual environment tooling you prefer, as long as it supports `pyproject.toml`. If you use your system Jupyter installation, make sure jupytext is installed so the percent script `preconf-sims.py` can be automatically converted to `.ipynb` format.
+## Using the notebook
 
-## Introduction
+### Environment setup
 
-TODO
+The notebook is bundled with a `pyproject.toml` containing all dependencies, so you can create your virtual environment using that and run it in a Jupyter instance using a kernel inside that environment. I've bundled `jupyter` itself into the dependencies, so an easy way to do this is to run `jupyter` from within the venv, where a suitable ipykernel will be automatically installed. I use `pdm run jupyter notebook` to run this thing, but you can probably get by with whatever virtual environment tooling you prefer.
+
+If you use another Jupyter installation, make sure jupytext is installed so the percent script `preconf-sims.py` (checked into Git) can be automatically converted to `.ipynb` format.
+
+### Quickstart
+
+To get a feel for usage, jump straight to the Examples section.
+
+### Summary of sections
+
+* **Provider and bidder population parameters.** Setting parameters for the model as global variables.
+* **Sampling methods.** Functions to sample populations of static and dynamic bidders, and to realise the private values of Wiener bidders at the second timestep.
+* **Selection rule.** Implementation of the greedy split mechanism selection rule, and a function that computes the "floor" price of a knapsack against a given bid profile and item size — that is, the infimum of the set of bids that would get an item of the given size into the knapsack against a given bid pool.
+* **Bid strategies.** Implementation of static bidding strategies. We implement passthrough bidding and two variants of an algorithm that simulates the behaviour of other bidders to predict a floor bid.
+
+
 
 ## Model description
 
@@ -127,7 +142,7 @@ More complex strategies might even use this forecast to adjust the size of the b
 
 ## Things to work on
 
-Here we discuss the ways in which the model likely diverges from reality and what could be done to improve it.
+Here we will discuss the ways in which the model likely diverges from reality and what could be done to improve it.
 
 * *TODO*
 
